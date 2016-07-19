@@ -45,25 +45,25 @@ uint8_t ow_search_sensors(int maxSensors, uint8_t *sensorScan)
 	uint8_t i;
 	uint8_t id[OW_ROMCODE_SIZE];
 	uint8_t diff, nSensors;
-	
+  
 	ow_reset();
-	
+
 	nSensors = 0;
-	
+
 	for( diff = OW_SEARCH_FIRST; diff != OW_LAST_DEVICE && nSensors < maxSensors ; )
 	{
 		ow_find_sensor( &diff, &id[0] );
-		
+
 		if( diff == OW_PRESENCE_ERR ) {
 			debug_print("No Sensor found\r" );
 			break;
 		}
-		
+
 		if( diff == OW_DATA_ERR ) {
 			debug_print("Bus Error\r" );
 			break;
 		}
-		
+
 		for (i=0;i<OW_ROMCODE_SIZE;i++)
 		{
 			sensorScan[nSensors*OW_ROMCODE_SIZE+i] = id[i];
@@ -75,7 +75,7 @@ uint8_t ow_search_sensors(int maxSensors, uint8_t *sensorScan)
 		*/
 		nSensors++;
 	}
-	
+
 	return nSensors;
 }
 
@@ -99,25 +99,26 @@ void ow_parasite_disable(void)
 uint8_t ow_reset(void)
 {
 	uint8_t err;
-	
-	OW_OUT_LOW(); // disable internal pull-up (maybe on from parasite)
-	OW_DIR_OUT(); // pull OW-Pin low for 480us
-	
-	delayMicroseconds(480);
-	
-	// set Pin as input - wait for clients to pull low
-	OW_DIR_IN(); // input
-	
-	delayMicroseconds(66);
-	err = OW_GET_IN();		// no presence detect
-	// nobody pulled to low, still high	
 
-	// after a delay the clients should release the line
-	// and input-pin gets back to high due to pull-up-resistor
-	delayMicroseconds(480-66);
-	if( OW_GET_IN() == 0 )		// short circuit
-	err = 1;
-	
+ ATOMIC_BLOCK() {
+		OW_OUT_LOW(); // disable internal pull-up (maybe on from parasite)
+		OW_DIR_OUT(); // pull OW-Pin low for 480us
+
+		delayMicroseconds(480);
+
+		// set Pin as input - wait for clients to pull low
+		OW_DIR_IN(); // input
+
+		delayMicroseconds(66);
+		err = OW_GET_IN();		// no presence detect
+		// nobody pulled to low, still high
+
+		// after a delay the clients should release the line
+		// and input-pin gets back to high due to pull-up-resistor
+		delayMicroseconds(480-66);
+		if( OW_GET_IN() == 0 )		// short circuit
+		err = 1;
+	}
 	return err;
 }
 
@@ -125,36 +126,39 @@ uint8_t ow_read_bit()
 {
 	int result;
 
-	OW_DIR_OUT(); // drive bus low
-	delayMicroseconds(6);
-	OW_DIR_IN();
-	delayMicroseconds(6); //Recommended values say 9
-	if( OW_GET_IN() == 0 )
-	result = 0;
-	else
-	result=1; // sample at end of read-timeslot (Reading only possible with high bit)
-	delayMicroseconds(58); // Complete the time slot and 10us recovery
-
+  ATOMIC_BLOCK() {
+		OW_DIR_OUT(); // drive bus low
+		delayMicroseconds(6);
+		OW_DIR_IN();
+		delayMicroseconds(6); //Recommended values say 9
+		if( OW_GET_IN() == 0 )
+		result = 0;
+		else
+		result=1; // sample at end of read-timeslot (Reading only possible with high bit)
+		delayMicroseconds(58); // Complete the time slot and 10us recovery
+	}
 	return result;
 }
 
 void ow_write_bit(uint8_t bit)
 {
-	if (bit)
-	{
-		// Write '1' bit
-		OW_DIR_OUT(); // drive bus low
-		delayMicroseconds(6);
-		OW_DIR_IN();
-		delayMicroseconds(64); // Complete the time slot and 10us recovery
-	}
-	else
-	{
-		// Write '0' bit
-		OW_DIR_OUT(); // drive bus low
-		delayMicroseconds(60);
-		OW_DIR_IN();
-		delayMicroseconds(10);
+	ATOMIC_BLOCK() {
+		if (bit)
+		{
+			// Write '1' bit
+			OW_DIR_OUT(); // drive bus low
+			delayMicroseconds(6);
+			OW_DIR_IN();
+			delayMicroseconds(64); // Complete the time slot and 10us recovery
+		}
+		else
+		{
+			// Write '0' bit
+			OW_DIR_OUT(); // drive bus low
+			delayMicroseconds(60);
+			OW_DIR_IN();
+			delayMicroseconds(10);
+		}
 	}
 }
 
@@ -188,14 +192,14 @@ uint8_t ow_rom_search( uint8_t diff, uint8_t *id )
 {
 	uint8_t i, j, next_diff;
 	uint8_t b;
-	
+
 	if( ow_reset() ) return OW_PRESENCE_ERR;	// error, no device found
-	
+
 	ow_byte_wr( OW_SEARCH_ROM );			// ROM search command
 	next_diff = OW_LAST_DEVICE;			// unchanged on last device
-	
+
 	i = OW_ROMCODE_SIZE * 8;					// 8 bytes
-	
+
 	do {
 		j = 8;					// 8 bits
 		do {
@@ -215,15 +219,15 @@ uint8_t ow_rom_search( uint8_t diff, uint8_t *id )
 			ow_write_bit( b );     			// write bit
 			*id >>= 1;
 			if( b ) *id |= 0x80;			// store bit
-			
+
 			i--;
-			
+
 		} while( --j );
-		
+
 		id++;					// next byte
-		
+
 	} while( i );
-	
+
 	return next_diff;				// to continue search
 }
 
@@ -245,7 +249,6 @@ void ow_command( uint8_t command, uint8_t *id )
 	else {
 		ow_byte_wr( OW_SKIP_ROM );			// to all devices
 	}
-	
+
 	ow_byte_wr( command );
 }
-

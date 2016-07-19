@@ -15,12 +15,19 @@ SYSTEM_THREAD(ENABLED);
 
 // DEBUG STUFF
 bool allow_flash = true;                    // Do we flash the blue LED on D7?
-bool debug_serial = true;
+bool debug_serial = false;
+
+// These defaults are reset according to SystemID in setup()
+int flask_port = 5001;    //5000 for live, 5001 for beta/testing
+String flask_path = "/pond/test"; //
+
 
 // The following all in ms
-int interval_sense = 9000;           // How often we take measurements, period after last successful
+int interval_sense_slow = 28000;           // How often we take measurements, period after last successful
+int interval_sense_fast = 8000;           // How often we take measurements, period after last successful
+int interval_sense = interval_sense_slow;
 int interval_sense_read = 1000;      // How long after (temp) measurement request we wait before asking for result
-int interval_flask = 10000;          // How often we try to log (needs valid measurement)
+int interval_flask = 30000;          // How often we try to log (needs valid measurement)
 int interval_cloud = 360000;         // How often we try to log to Particle Cloud.
 int interval_connection_check = 1000;// How often we check the WiFi is OK.
 
@@ -60,11 +67,11 @@ float system_temp_min = 0;          // min temperature, not really used
 
 
 int water_level = 0;                // Water level below sensor, in mm
-int water_level_low_trig = 600;     // Water Level LOW trigger (start filling), distance from sensor in mm
-int water_level_high_trig = 570;    // Water Level HIGH trigger (stop filling), distance from sensor in mm
+int water_level_low_trig = 400;     // Water Level LOW trigger (start filling), distance from sensor in mm
+int water_level_high_trig = 385;    // Water Level HIGH trigger (stop filling), distance from sensor in mm
 int min_fill_battery_mv = 12000;    // Don't attempt to operate the valve if Battery level is below this.
 int valve_bad_read_count = 0;       // Used to track bad readings.
-int valve_bad_read_max = 30;        // 30 bad readings in a row (5 mins) will force valve shut.
+int valve_bad_read_max = 6;        // 30 bad readings in a row (5 mins) will force valve shut.
 
 int water_level_stdev = 0;              // Water level below sensor, in mm
 int water_level_stdev_required = 100;   // Max std deviation allowed in water level readings.
@@ -114,6 +121,7 @@ int valve_controlPin = D6;
 int batt_mon_pin = A0;
 int solar_mon_pin = A1;
 
+bool sleeping = false;
 
 unsigned long last_measurement = 0;     // Timing variable - Last time we completed processing a valid measurement
 unsigned long last_cloud = 0;           // Timing variable - Last time we logged to the cloud
@@ -145,7 +153,9 @@ void setup()
     String tempstr = "pond";
     tempstr.toCharArray(tablename, 32);
     allow_flash = true;                    // Do we flash the blue LED on D7?
-    debug_serial = true;
+    debug_serial = false;
+    flask_port = 5000;    //5000 for live, 5001 for beta/testing
+    flask_path = "/pond/PondLog";
     if (debug_serial) {  Serial.println("I am Pond Topper Upper"); }
   }
 
@@ -412,6 +422,7 @@ void start_measurement()
 
 int get_numsensors()
 // Note this can loop forever if there aren't the right number of sensors!
+// TODO - do something about that!
 {
   int numsensors = 0;
   while (numsensors != how_many_sensors)
@@ -578,11 +589,13 @@ void operate_valve()
       // Need to fill the pond
       digitalWrite(valve_controlPin, HIGH);
       valve_status = 1;
+      interval_sense = interval_sense_fast;
     }
     else if (water_level < water_level_high_trig) {
       // Time to stop filling the pond.
       digitalWrite(valve_controlPin, LOW);
       valve_status = 0;
+      interval_sense = interval_sense_slow;
     }
   } else {
   // Bad water level readings
@@ -590,6 +603,7 @@ void operate_valve()
       // Could be a problem so best to ensure the valve is closed
       digitalWrite(valve_controlPin, LOW);
       valve_status = 0;
+      // Leave the interval sense fast until we are sure of result.
     } else {
       valve_bad_read_count++;
     }
@@ -738,14 +752,14 @@ void loop()
       http_request_t request;
       http_response_t response;
       request.hostname = "flask.home";
-      request.port = 5000;
-      request.path = "/FlowRetLog";
+      request.port = flask_port;
+      request.path = flask_path;
       //if (debug_serial) {  Serial.print("Getting RSSI...."); }
       //int myrssi  = WiFi.RSSI();
       //if (debug_serial) {  Serial.printf("Done (%d)\r\n",myrssi); }
       uint32_t freemem = System.freeMemory();
-      sprintf(postdata, "{\"dbname\":\"%s\",\
-      \"airtemp\":\"%.1f\",\"air_temp_ave\":\"%.1f\",\"air_temp_max\":\"%.1f\",\"air_temp_min\":\"%.1f\",\
+      sprintf(postdata, "{\"tablename\":\"%s\",\
+      \"air_temp\":\"%.1f\",\"air_temp_ave\":\"%.1f\",\"air_temp_max\":\"%.1f\",\"air_temp_min\":\"%.1f\",\
       \"water_temp\":\"%.1f\",\"water_temp_ave\":\"%.1f\",\"water_temp_max\":\"%.1f\",\"water_temp_min\":\"%.1f\",\
       \"system_temp\":\"%.1f\",\"system_temp_ave\":\"%.1f\",\"system_temp_max\":\"%.1f\",\"system_temp_min\":\"%.1f\",\
       \"water_level\":\"%d\",\"water_level_stdev\":\"%d\",\"valve_status\":\"%d\",\
@@ -779,9 +793,26 @@ void loop()
       if (allow_flash == true) {digitalWrite(led, LOW);}
       last_flask = millis();
       if (debug_serial) {  Serial.println("Done logging to flask."); }
+      // So, if we've logged, we can go to sleep for a little while
+      // interval_flask - 5000 (ms)
+      // we only sleep if the valve is closed
+      if ((valve_status == 0) && (interval_flask > 15000))
+      {
+        //System.sleep(uint16_t wakeUpPin, uint16_t edgeTriggerMode, long seconds)
+        // A3 is unused
+        // sleeping flag not used as this is STOP
+        //delay(250);
+        //System.sleep(A3, RISING, (interval_flask - 5000));
+
+        // Or perhaps just used WiFi sleep
+        // and power down usonic via ULN2003 - TODO
+        System.sleep(interval_flask - 10000);
+        //sleeping = true;
+      }
+
     }
     // Section for logging to Particle Cloud - called once a minute, which is more than enough
-    if ( Particle.connected() )
+    if ( Particle.connected() && not(sleeping))
     {
       if ( (millis() - last_cloud > interval_cloud) && good_measurement)
       {
