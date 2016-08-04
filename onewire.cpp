@@ -13,7 +13,7 @@
 #include "onewire.h"
 
 #ifdef OW_DEBUG
-#  define debug_print(msg) Spark.publish("log", msg);
+#  define debug_print(msg) Particle.publish("log", msg);
 #else
 #  define debug_print(msg) (void)0
 #endif
@@ -45,7 +45,7 @@ uint8_t ow_search_sensors(int maxSensors, uint8_t *sensorScan)
 	uint8_t i;
 	uint8_t id[OW_ROMCODE_SIZE];
 	uint8_t diff, nSensors;
-  
+
 	ow_reset();
 
 	nSensors = 0;

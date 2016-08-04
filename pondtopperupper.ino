@@ -23,13 +23,13 @@ String flask_path = "/pond/test"; //
 
 
 // The following all in ms
-int interval_sense_slow = 28000;           // How often we take measurements, period after last successful
+int interval_sense_slow = 295000;           // How often we take measurements, period after last successful
 int interval_sense_fast = 8000;           // How often we take measurements, period after last successful
 int interval_sense = interval_sense_slow;
 int interval_sense_read = 1000;      // How long after (temp) measurement request we wait before asking for result
-int interval_flask = 30000;          // How often we try to log (needs valid measurement)
+int interval_flask = 300000;          // How often we try to log (needs valid measurement)
 int interval_cloud = 360000;         // How often we try to log to Particle Cloud.
-int interval_connection_check = 1000;// How often we check the WiFi is OK.
+int interval_connection_check = 5000;// How often we check the WiFi is OK.
 
 // Setup various constants and variables
 const uint8_t how_many_sensors = 3;   // Number of sensors that we expect
@@ -67,9 +67,9 @@ float system_temp_min = 0;          // min temperature, not really used
 
 
 int water_level = 0;                // Water level below sensor, in mm
-int water_level_low_trig = 400;     // Water Level LOW trigger (start filling), distance from sensor in mm
-int water_level_high_trig = 385;    // Water Level HIGH trigger (stop filling), distance from sensor in mm
-int min_fill_battery_mv = 12000;    // Don't attempt to operate the valve if Battery level is below this.
+int water_level_low_trig = 440;     // Water Level LOW trigger (start filling), distance from sensor in mm
+int water_level_high_trig = 400;    // Water Level HIGH trigger (stop filling), distance from sensor in mm
+int min_fill_battery_mv = 11740;    // Don't attempt to operate the valve if Battery level is below this.
 int valve_bad_read_count = 0;       // Used to track bad readings.
 int valve_bad_read_max = 6;        // 30 bad readings in a row (5 mins) will force valve shut.
 
@@ -84,7 +84,7 @@ const int battery_empty_mV = 11500;
 const int battery_full_mV = 12900;
 const float batt_R1 = 1032;   // Voltage divider, upper R in ohms
 const float batt_R2 = 227;   // Voltage diveder, lower (measured) R in ohms
-const float batt_adc_steps = 0.00080898;  // V per steps in ADC with 3.3V at 3.31V
+const float batt_adc_steps = 0.00080898;  // V per steps in ADC with 3.3V at 3.31V - tuned
 const float batt_multiplier = 1000.0 * batt_adc_steps / ( batt_R2 / ( batt_R1 + batt_R2 ) ); // Should result in mV of battery
 
 int solar_mV = 0;
@@ -598,6 +598,7 @@ void operate_valve()
       interval_sense = interval_sense_slow;
     }
   } else {
+  // Could also end up here when battery_mV drops too low I think TODO
   // Bad water level readings
     if (valve_bad_read_count > valve_bad_read_max) {
       // Could be a problem so best to ensure the valve is closed
@@ -679,8 +680,13 @@ void loop()
       usonic_mping(1, usonic_results);
       water_level_stdev = usonic_results[4];
       // How reliable is the measurement?
-      //if (water_level_stdev > 100) {
+      if (water_level_stdev > 100) {
         // That's not reliable enough
+        // We can try again I guess
+        if (debug_serial) {  Serial.print("calling unsonic_ping - again"); }
+        usonic_mping(1, usonic_results);
+        water_level_stdev = usonic_results[4];
+      }
         //good_measurement = false; // should be a pointless thing, but can't be too careful
         //measuring_flag = false; // without resetting the last_measurement time this should result in an immediate re-measure
       //} else {
@@ -735,7 +741,14 @@ void loop()
   // Right now, although mostly not necessary, if Particle Cloud is not available we won't log locally
   //if ( Particle.connected() )
   // if ( WiFi.ready() && (WiFi.RSSI() < 0))
-  if ( WiFi.ready() )
+  if ( (millis() - last_flask) > (interval_flask - 10000))
+  {
+    // remove the sleeping indicator
+    sleeping = false;
+    if ( !WiFi.connecting() ) { WiFi.connect(); }
+    last_connection_check = millis();
+  }
+  if ( WiFi.ready() && not(sleeping) )
   {
     //RGB.control(true);
     // Section for logging to local database via REST JSON FLASK
@@ -790,6 +803,12 @@ void loop()
         Serial.print("Application>\tHTTP Response Body: ");
         Serial.println(response.body);
       }
+      if (response.status == 299)
+      {
+        // This signals that we should enter Safe mode
+        // It's a way to ensure we can remotely update the code, as the WiFi sleeps
+        System.enterSafeMode();
+      }
       if (allow_flash == true) {digitalWrite(led, LOW);}
       last_flask = millis();
       if (debug_serial) {  Serial.println("Done logging to flask."); }
@@ -807,7 +826,7 @@ void loop()
         // Or perhaps just used WiFi sleep
         // and power down usonic via ULN2003 - TODO
         System.sleep(interval_flask - 10000);
-        //sleeping = true;
+        sleeping = true;
       }
 
     }
@@ -865,10 +884,10 @@ void loop()
       last_cloud_connection_check = millis();
     }
   }
-  else if (millis() - last_connection_check > interval_connection_check)   // This is the else for the WiFi connectivity check
+  else if ( (millis() - last_connection_check > interval_connection_check) && not(sleeping) )  // This is the else for the WiFi connectivity check
   {
     if (debug_serial) {
-      Serial.print("Not connected to WiFi and 1s since last check..");
+      Serial.print("Not connected to WiFi and Xs since last check..");
       Serial.printlnf("System Memory is: %d",System.freeMemory());
     }
     // Only here if WiFi not connected
