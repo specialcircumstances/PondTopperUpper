@@ -32,8 +32,9 @@ int interval_cloud = 360000;         // How often we try to log to Particle Clou
 int interval_connection_check = 5000;// How often we check the WiFi is OK.
 
 // Setup various constants and variables
-const uint8_t how_many_sensors = 3;   // Number of sensors that we expect
+const uint8_t how_many_sensors = 3;   // Number of temp sensors that we expect
 char tablename[32] = "unknown_device";       // Name of the table we are logging to, note that the flask code needs to be configured with the same name
+                                             // is reset in setup according to HW ID
 char myversion[32] = "unknown_version";      // String of the firmware version we are using
 
 
@@ -67,11 +68,11 @@ float system_temp_min = 0;          // min temperature, not really used
 
 
 int water_level = 0;                // Water level below sensor, in mm
-int water_level_low_trig = 440;     // Water Level LOW trigger (start filling), distance from sensor in mm
-int water_level_high_trig = 400;    // Water Level HIGH trigger (stop filling), distance from sensor in mm
+int water_level_low_trig = 410;     // Water Level LOW trigger (start filling), distance from sensor in mm
+int water_level_high_trig = 390;    // Water Level HIGH trigger (stop filling), distance from sensor in mm
 int min_fill_battery_mv = 11740;    // Don't attempt to operate the valve if Battery level is below this.
 int valve_bad_read_count = 0;       // Used to track bad readings.
-int valve_bad_read_max = 6;        // 30 bad readings in a row (5 mins) will force valve shut.
+int valve_bad_read_max = 6;        // x bad readings in a row  will force valve shut.
 
 int water_level_stdev = 0;              // Water level below sensor, in mm
 int water_level_stdev_required = 100;   // Max std deviation allowed in water level readings.
@@ -89,8 +90,8 @@ const float batt_multiplier = 1000.0 * batt_adc_steps / ( batt_R2 / ( batt_R1 + 
 
 int solar_mV = 0;
 const float solar_R1 = 1156;   // Voltage divider, upper R in ohms
-const float solar_R2 = 113;   // Voltage diveder, lower (measured) R in ohms
-const float solar_adc_steps = 0.000809;  // V per steps in ADC with 3.3V at 3.31V
+const float solar_R2 = 113;   // Voltage divider, lower (measured) R in ohms
+const float solar_adc_steps = 0.000809;  // V per steps in ADC with 3.3V at 3.31V - tweaked a little
 const float solar_multiplier = 1000.0 * solar_adc_steps / ( solar_R2 / ( solar_R1 + solar_R2 ) ); // Should result in mV of battery
 
 // All size 12
@@ -870,7 +871,7 @@ void loop()
         // Just start another measurement asap, got to assume this one is out of date now
         good_measurement = false; // should be a pointless thing, but can't be too careful
         measuring_flag = false; // without resetting the last_measurement time this should result in an immediate re-measure
-        if (reconnect_count > 32)  // Just to be on the safe side, if we're seeing lots of these, let's reset.
+        if (reconnect_count > 15)  // Just to be on the safe side, if we're seeing lots of these, let's reset.
         {
           if (debug_serial) {
             Serial.println("Resetting due to cloud connection issues");
@@ -879,6 +880,9 @@ void loop()
           }
           System.reset();
         }
+      } else {
+        // Reset connection count when we get a good connection
+        reconnect_count = 0;
       }
       // RGB.control(true);
       last_cloud_connection_check = millis();
@@ -890,7 +894,7 @@ void loop()
       Serial.print("Not connected to WiFi and Xs since last check..");
       Serial.printlnf("System Memory is: %d",System.freeMemory());
     }
-    // Only here if WiFi not connected
+    // Only here if WiFi not connected and we're not sleeping.
     // This relies on us running the System Thread.
     // Note this will still be subject to our Watchdog (I think)
     //waitUntil(Particle.connected);
