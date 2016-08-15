@@ -14,7 +14,6 @@ SYSTEM_THREAD(ENABLED);
 
 
 // DEBUG STUFF
-bool allow_flash = true;                    // Do we flash the blue LED on D7?
 bool debug_serial = false;
 
 // These defaults are reset according to SystemID in setup()
@@ -66,10 +65,10 @@ float water_temp_min = 0;           // min temperature, not really used
 float air_temp_min = 0;             // min temperature, not really used
 float system_temp_min = 0;          // min temperature, not really used
 
-
+// Water Level variables and settings
 int water_level = 0;                // Water level below sensor, in mm
-int water_level_low_trig = 410;     // Water Level LOW trigger (start filling), distance from sensor in mm
-int water_level_high_trig = 390;    // Water Level HIGH trigger (stop filling), distance from sensor in mm
+int water_level_low_trig = 450;     // Water Level LOW trigger (start filling), distance from sensor in mm
+int water_level_high_trig = 440;    // Water Level HIGH trigger (stop filling), distance from sensor in mm
 int min_fill_battery_mv = 11740;    // Don't attempt to operate the valve if Battery level is below this.
 int valve_bad_read_count = 0;       // Used to track bad readings.
 int valve_bad_read_max = 6;        // x bad readings in a row  will force valve shut.
@@ -113,7 +112,7 @@ bool good_measurement = false;  // Last measurement valid
 
 //uint8_t g_ave_values = 30;    // If we sample every 10 seconds then this is a 5 minute average.
 uint8_t g_ave_values = 90;      // If we sample every 10 seconds then this is a 15 minute average.
-int led = D7;                   // LED on this pin
+
 int usonic_echoPin_01 = D1;
 int usonic_trigPin_01 = D2;
 int usonic_echoPin_02 = D3;
@@ -153,7 +152,6 @@ void setup()
   {
     String tempstr = "pond";
     tempstr.toCharArray(tablename, 32);
-    allow_flash = true;                    // Do we flash the blue LED on D7?
     debug_serial = false;
     flask_port = 5000;    //5000 for live, 5001 for beta/testing
     flask_path = "/pond/PondLog";
@@ -168,7 +166,7 @@ void setup()
   ow_setPin(D0);
   usonic_setup(1);
   usonic_setup(2);
-  pinMode(led, OUTPUT);
+
   pinMode(valve_controlPin, OUTPUT);
   air_temp_min = 100;
   air_temp_max = 0;
@@ -217,7 +215,7 @@ void setup()
     Serial.print("Finishing setup. Initial Memory is:");
     Serial.println(initial_mem_usage);
   }
-  if (allow_flash == true) {digitalWrite(led, HIGH);}
+
   PhotonWdgs::begin(true,true,10000,TIMER7);  //https://github.com/raphitheking/photon-wdgs/blob/master/firmware/examples/photon-wdgs-demo.cpp
 }
 
@@ -394,26 +392,6 @@ float float_average(float new_val, float cur_ave, uint8_t values)
   }
 }
 
-
-void startup_flasher()
-{
-  if (allow_flash == true)
-  {
-    //if (debug_serial) {  Serial.println("Startup flash."); }
-    digitalWrite(led, HIGH);
-    delay(50);
-    digitalWrite(led, LOW);
-    delay(50);
-  }
-  initial_mem_usage = System.freeMemory();
-  if (debug_serial)
-  {
-    //Serial.print("Adjusting Initial Memory:");
-    //Serial.println(initial_mem_usage);
-  }
-}
-
-
 void start_measurement()
 {
   if (debug_serial) {  Serial.println("\r\n----------------New Cycle------------------\r\nRequesting Measurement..."); }
@@ -436,9 +414,6 @@ int get_numsensors()
         Serial.printlnf("Found %i sensors but I want %i - sulking now :(", numsensors, how_many_sensors);
         //log(msg);
       }
-      if (allow_flash == true) { digitalWrite(led, HIGH); }
-      delay(100);
-      if (allow_flash == true) { digitalWrite(led, LOW); }
       delay(100);
     }
   }
@@ -616,13 +591,8 @@ void loop()
 {
   //dogcount = false;   // Reset Watchdog
   PhotonWdgs::tickle();
-  if (startup_tick == 0)
-  {
-    startup_flasher();
-  }
   if ( ( (millis() - last_measurement) > interval_sense) && not(measuring_flag) ) // If it's time, ask for a measurement
   {
-    if (allow_flash == true) {digitalWrite(led, HIGH);}
     //digitalWrite(valve_controlPin, HIGH);
     start_measurement();
     measuring_flag = true;
@@ -632,7 +602,6 @@ void loop()
   if ( ( (millis() - measurement_request) > interval_sense_read) && measuring_flag ) // 1 second after the measurement check for the result
   {
     if (debug_serial) {  Serial.println("Checking for result from measurement."); }
-    if (allow_flash == true) {digitalWrite(led, LOW);}
     //digitalWrite(valve_controlPin, LOW);
     int numsensors = get_numsensors();
     float my_results_f[numsensors];
@@ -787,7 +756,6 @@ void loop()
       battery_mV, battery_percent, current_battery_status,
       freemem, initial_mem_usage, reconnect_count, myversion
       );
-      if (allow_flash == true) {digitalWrite(led, HIGH);}
       if (debug_serial)
       {
         Serial.println("Posting to flask now.");
@@ -810,7 +778,6 @@ void loop()
         // It's a way to ensure we can remotely update the code, as the WiFi sleeps
         System.enterSafeMode();
       }
-      if (allow_flash == true) {digitalWrite(led, LOW);}
       last_flask = millis();
       if (debug_serial) {  Serial.println("Done logging to flask."); }
       // So, if we've logged, we can go to sleep for a little while
@@ -837,7 +804,6 @@ void loop()
       if ( (millis() - last_cloud > interval_cloud) && good_measurement)
       {
         if (debug_serial) {  Serial.println("Starting logging to Particle Cloud. DISABLED"); }
-        if (allow_flash == true) { digitalWrite(led, HIGH); }
         int myrssi  = 20;
         uint32_t freemem = System.freeMemory();
         PhotonWdgs::tickle();
@@ -845,7 +811,6 @@ void loop()
         //reconnect_count,
         //myrssi
         //);
-        if (allow_flash == true) { digitalWrite(led, LOW); }
         last_cloud = millis();
         if (debug_serial) {  Serial.println("Finished logging to Particle Cloud."); }
       }
