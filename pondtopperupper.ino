@@ -67,8 +67,8 @@ float system_temp_min = 0;          // min temperature, not really used
 
 // Water Level variables and settings
 int water_level = 0;                // Water level below sensor, in mm
-int water_level_low_trig = 450;     // Water Level LOW trigger (start filling), distance from sensor in mm
-int water_level_high_trig = 440;    // Water Level HIGH trigger (stop filling), distance from sensor in mm
+int water_level_low_trig = 470;     // Water Level LOW trigger (start filling), distance from sensor in mm
+int water_level_high_trig = 460;    // Water Level HIGH trigger (stop filling), distance from sensor in mm
 int min_fill_battery_mv = 11740;    // Don't attempt to operate the valve if Battery level is below this.
 int valve_bad_read_count = 0;       // Used to track bad readings.
 int valve_bad_read_max = 6;        // x bad readings in a row  will force valve shut.
@@ -776,7 +776,12 @@ void loop()
       {
         // This signals that we should enter Safe mode
         // It's a way to ensure we can remotely update the code, as the WiFi sleeps
+        reconnect_count = 0;
         System.enterSafeMode();
+      } else if (response.status == 200)
+      {
+        // All is well
+        reconnect_count = 0;
       }
       last_flask = millis();
       if (debug_serial) {  Serial.println("Done logging to flask."); }
