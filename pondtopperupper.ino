@@ -22,16 +22,20 @@ String flask_path = "/pond/test"; //
 
 
 // The following all in ms
-int interval_sense_slow = 295000;           // How often we take measurements, period after last successful
+
+int interval_flask = 20000;          // How long after we wake up that we get measurements
+int interval_cloud = 360000;         // How often we try to log to Particle Cloud.
+int interval_connection_check = 5000;// How often we check the WiFi is OK.
+int interval_sense_slow = interval_flask - 5000;           // How often we take measurements, period after last successful
 int interval_sense_fast = 8000;           // How often we take measurements, period after last successful
 int interval_sense = interval_sense_slow;
 int interval_sense_read = 1000;      // How long after (temp) measurement request we wait before asking for result
-int interval_flask = 300000;          // How often we try to log (needs valid measurement)
-int interval_cloud = 360000;         // How often we try to log to Particle Cloud.
-int interval_connection_check = 5000;// How often we check the WiFi is OK.
+int interval_sleep = 300 - (interval_flask / 1000); // How long we sleep for, periodicity
+int interval_watchdog = interval_sleep * 2;
 
 // Setup various constants and variables
 const uint8_t how_many_sensors = 3;   // Number of temp sensors that we expect
+//const uint8_t how_many_sensors = 1;   // Number of temp sensors that we expect
 char tablename[32] = "unknown_device";       // Name of the table we are logging to, note that the flask code needs to be configured with the same name
                                              // is reset in setup according to HW ID
 char myversion[32] = "unknown_version";      // String of the firmware version we are using
@@ -117,7 +121,9 @@ int usonic_echoPin_01 = D1;
 int usonic_trigPin_01 = D2;
 int usonic_echoPin_02 = D3;
 int usonic_trigPin_02 = D4;
+int sleep_wakeupPin = D5;
 int valve_controlPin = D6;
+int usonic_enable = D7;
 int batt_mon_pin = A0;
 int solar_mon_pin = A1;
 
@@ -166,8 +172,9 @@ void setup()
   ow_setPin(D0);
   usonic_setup(1);
   usonic_setup(2);
-
+  pinMode(sleep_wakeupPin, INPUT_PULLDOWN);  // wake up trigger pin  - NC
   pinMode(valve_controlPin, OUTPUT);
+  pinMode(usonic_enable, OUTPUT);
   air_temp_min = 100;
   air_temp_max = 0;
   water_temp_min = 100;
@@ -215,8 +222,11 @@ void setup()
     Serial.print("Finishing setup. Initial Memory is:");
     Serial.println(initial_mem_usage);
   }
-
-  PhotonWdgs::begin(true,true,10000,TIMER7);  //https://github.com/raphitheking/photon-wdgs/blob/master/firmware/examples/photon-wdgs-demo.cpp
+  // Enable ultrasonic power (will sleep later)
+  //delay(100);
+  //digitalWrite(usonic_enable, HIGH);
+  //delay(100);
+  //PhotonWdgs::begin(true,true,interval_watchdog,TIMER7);  //https://github.com/raphitheking/photon-wdgs/blob/master/firmware/examples/photon-wdgs-demo.cpp
 }
 
 
@@ -299,7 +309,7 @@ void usonic_mping(int sensorid, unsigned long retarray[5])
     total_sq += results[i] * results[i];
     if (results[i] > max) { max = results[i]; }
     if (results[i] < min) { min = results[i]; }
-    PhotonWdgs::tickle();
+    //PhotonWdgs::tickle();
     delay(interping_delay);
   }
 
@@ -320,11 +330,11 @@ void usonic_mping(int sensorid, unsigned long retarray[5])
       if (abs((water_level * 58) - results[i]) > 290) {  // Over 5 cm from previous reading
         results[i]=usonic_ping(sensorid);     // Get new reading
         if ((results[i] < 1450) || (results[i] > 17400)) {
-          PhotonWdgs::tickle();
+          //PhotonWdgs::tickle();
           delay(interping_delay * 2);
           results[i]=usonic_ping(sensorid);   // Last chance...
         }
-        PhotonWdgs::tickle();
+        //PhotonWdgs::tickle();
         delay(interping_delay * 2);
       }
       total += results[i];
@@ -522,6 +532,7 @@ int check_battery()
 
 int check_solar()
 {
+  // This does not work at the moment for hardware reasons.
   // Returns battery voltage in mV
   int val = analogRead(solar_mon_pin);  // read the analogPin
   float mymV = val * solar_multiplier;
@@ -590,7 +601,7 @@ void operate_valve()
 void loop()
 {
   //dogcount = false;   // Reset Watchdog
-  PhotonWdgs::tickle();
+  //PhotonWdgs::tickle();
   if ( ( (millis() - last_measurement) > interval_sense) && not(measuring_flag) ) // If it's time, ask for a measurement
   {
     //digitalWrite(valve_controlPin, HIGH);
@@ -762,7 +773,7 @@ void loop()
         Serial.println(postdata);
       }
       request.body = postdata;
-      PhotonWdgs::tickle();
+      //PhotonWdgs::tickle();
       http.post(request, response, headers);
       //
       if (debug_serial)
@@ -798,8 +809,13 @@ void loop()
 
         // Or perhaps just used WiFi sleep
         // and power down usonic via ULN2003 - TODO
-        System.sleep(interval_flask - 10000);
-        sleeping = true;
+        //System.sleep(interval_flask - 10000);
+        //sleeping = true;
+        //digitalWrite(usonic_enable, LOW);
+        System.sleep(sleep_wakeupPin, RISING, interval_sleep);
+        //PhotonWdgs::tickle();
+        delay(1000);
+        //digitalWrite(usonic_enable, HIGH);
       }
 
     }
@@ -811,7 +827,7 @@ void loop()
         if (debug_serial) {  Serial.println("Starting logging to Particle Cloud. DISABLED"); }
         int myrssi  = 20;
         uint32_t freemem = System.freeMemory();
-        PhotonWdgs::tickle();
+        //PhotonWdgs::tickle();
         //sprintf(resultstr, "{\"reconnect_count\":%lu,\"RSSI\":%d}",
         //reconnect_count,
         //myrssi
@@ -831,7 +847,7 @@ void loop()
       // wait for the cloud connection to be connected or timeout after 8 seconds
       // Must be a shorter interval than the watchdog timer!
       // RGB.control(false);
-      PhotonWdgs::tickle();
+      //PhotonWdgs::tickle();
       if (not(waitFor(Particle.connected, 8000))) {
         reconnect_count++;
         if (debug_serial) {
