@@ -81,6 +81,8 @@ int water_level_stdev = 0;              // Water level below sensor, in mm
 int water_level_stdev_required = 100;   // Max std deviation allowed in water level readings.
 int valve_status = 0;                 //0 for closed, 1 for open
 int initial_mem_usage = 0;
+float minimum_operating_temp = 5;    // below this temp do not try to operate the valve
+int minimum_operating_battery = 25;  // below this battery percentage we don't try to operate the valve
 
 int battery_mV = 0;
 int battery_percent = 0;
@@ -566,6 +568,11 @@ void battery_status_text(int batt_mV, char status_text[12])
 void operate_valve()
 // Remember that we are dealing with distance from sensor, not absolute depth of water.
 {
+  if ((air_temp < minimum_operating_temp) || (battery_percent < minimum_operating_battery))
+  {
+    // Water might be freezing we don't want to break the valve
+    return;
+  }
   if ( water_level_stdev < water_level_stdev_required )
   // We are confident in our measurement
   {
