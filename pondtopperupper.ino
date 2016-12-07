@@ -568,17 +568,12 @@ void battery_status_text(int batt_mV, char status_text[12])
 void operate_valve()
 // Remember that we are dealing with distance from sensor, not absolute depth of water.
 {
-  if ((air_temp < minimum_operating_temp) || (battery_percent < minimum_operating_battery))
-  {
-    // Water might be freezing we don't want to break the valve
-    return;
-  }
   if ( water_level_stdev < water_level_stdev_required )
   // We are confident in our measurement
   {
     // Reset bad reading count
     valve_bad_read_count = 0;
-    if ( (water_level > water_level_low_trig) && (battery_mV > min_fill_battery_mv) )
+    if ( (water_level > water_level_low_trig) && (battery_mV > min_fill_battery_mv) && (air_temp > minimum_operating_temp) )
     {
       // Need to fill the pond
       digitalWrite(valve_controlPin, HIGH);
