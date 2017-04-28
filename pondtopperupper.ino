@@ -115,6 +115,7 @@ char current_battery_status[12];
 
 bool measuring_flag = false;    // Measurement in progress
 bool good_measurement = false;  // Last measurement valid
+bool enable_valve = true;      // Stops actual operation of the valve (mainly for testing)
 
 //uint8_t g_ave_values = 30;    // If we sample every 10 seconds then this is a 5 minute average.
 uint8_t g_ave_values = 90;      // If we sample every 10 seconds then this is a 15 minute average.
@@ -573,7 +574,7 @@ void operate_valve()
   {
     // Reset bad reading count
     valve_bad_read_count = 0;
-    if ( (water_level > water_level_low_trig) && (battery_mV > min_fill_battery_mv) && (air_temp > minimum_operating_temp) )
+    if ( (water_level > water_level_low_trig) && (battery_mV > min_fill_battery_mv) && (air_temp > minimum_operating_temp) && enable_valve)
     {
       // Need to fill the pond
       digitalWrite(valve_controlPin, HIGH);
