@@ -70,9 +70,11 @@ float air_temp_min = 0;             // min temperature, not really used
 float system_temp_min = 0;          // min temperature, not really used
 
 // Water Level variables and settings
+int water_level_target = 490;       // Target water level, change to suit requirements, higher is lower
+int water_level_accuracy = 7;       // Will try to keep the water level within this many mm of the target
 int water_level = 0;                // Water level below sensor, in mm
-int water_level_low_trig = 470;     // Water Level LOW trigger (start filling), distance from sensor in mm
-int water_level_high_trig = 460;    // Water Level HIGH trigger (stop filling), distance from sensor in mm
+int water_level_low_trig = water_level_target + water_level_accuracy;     // Water Level LOW trigger (start filling), distance from sensor in mm
+int water_level_high_trig = water_level_target - water_level_accuracy;    // Water Level HIGH trigger (stop filling), distance from sensor in mm
 int min_fill_battery_mv = 11740;    // Don't attempt to operate the valve if Battery level is below this.
 int valve_bad_read_count = 0;       // Used to track bad readings.
 int valve_bad_read_max = 6;        // x bad readings in a row  will force valve shut.
@@ -164,6 +166,9 @@ void setup()
     debug_serial = false;
     flask_port = 5000;    //5000 for live, 5001 for beta/testing
     flask_path = "/pond/PondLog";
+    // for hidden and offline networks on the Photon, the security cipher is also needed
+    // Cipher options are WLAN_CIPHER_AES, WLAN_CIPHER_TKIP and WLAN_CIPHER_AES_TKIP
+    WiFi.setCredentials("BadWolf", "4747fe89g3we", WPA2, WLAN_CIPHER_AES);
     if (debug_serial) {  Serial.println("I am Pond Topper Upper"); }
   }
 
@@ -752,7 +757,7 @@ void loop()
       request.port = flask_port;
       request.path = flask_path;
       //if (debug_serial) {  Serial.print("Getting RSSI...."); }
-      //int myrssi  = WiFi.RSSI();
+      int myrssi  = WiFi.RSSI();
       //if (debug_serial) {  Serial.printf("Done (%d)\r\n",myrssi); }
       uint32_t freemem = System.freeMemory();
       sprintf(postdata, "{\"tablename\":\"%s\",\
@@ -761,14 +766,14 @@ void loop()
       \"system_temp\":\"%.1f\",\"system_temp_ave\":\"%.1f\",\"system_temp_max\":\"%.1f\",\"system_temp_min\":\"%.1f\",\
       \"water_level\":\"%d\",\"water_level_stdev\":\"%d\",\"valve_status\":\"%d\",\
       \"battery_mV\":\"%d\",\"battery_percent\":\"%d\",\"battery_status\":\"%s\",\
-      \"freemem\":\"%d\",\"initmem\":\"%d\",\"reconnects\":\"%d\",\"version\":\"%s\"}",
+      \"freemem\":\"%d\",\"initmem\":\"%d\",\"reconnects\":\"%d\",\"version\":\"%s\",\"RSSI\":\"%d\"}",
       tablename,
       air_temp, air_temp_ave, air_temp_max, air_temp_min,
       water_temp, water_temp_ave, water_temp_max, water_temp_min,
       system_temp, system_temp_ave, system_temp_max, system_temp_min,
       water_level, water_level_stdev, valve_status,
       battery_mV, battery_percent, current_battery_status,
-      freemem, initial_mem_usage, reconnect_count, myversion
+      freemem, initial_mem_usage, reconnect_count, myversion, myrssi
       );
       if (debug_serial)
       {
@@ -792,6 +797,12 @@ void loop()
         // It's a way to ensure we can remotely update the code, as the WiFi sleeps
         reconnect_count = 0;
         System.enterSafeMode();
+      } else if (response.status == 298)
+      {
+        // Need to fill the pond (forced)
+        digitalWrite(valve_controlPin, HIGH);
+        valve_status = 1;
+        interval_sense = interval_sense_fast;
       } else if (response.status == 200)
       {
         // All is well
@@ -816,8 +827,19 @@ void loop()
         //sleeping = true;
         //digitalWrite(usonic_enable, LOW);
         System.sleep(sleep_wakeupPin, RISING, interval_sleep);
+        if (waitFor(Particle.connected, 10000)) {
+          if (debug_serial) {  Serial.println("I am Connected to Particle Cloud (wake time)."); }
+        }
+        else
+        {
+          if (debug_serial) {  Serial.println("Timed out connecting to Particle Cloud at wake...."); }
+        }
+        if (debug_serial)
+        {
+          Serial.print("My IP Address is: ");
+          Serial.println(WiFi.localIP());
+        }
         //PhotonWdgs::tickle();
-        delay(1000);
         //digitalWrite(usonic_enable, HIGH);
       }
 
