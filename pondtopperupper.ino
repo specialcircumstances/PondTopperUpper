@@ -170,7 +170,7 @@ void setup()
     flask_path = "/pond/PondLog";
     // for hidden and offline networks on the Photon, the security cipher is also needed
     // Cipher options are WLAN_CIPHER_AES, WLAN_CIPHER_TKIP and WLAN_CIPHER_AES_TKIP
-    WiFi.setCredentials("BadWolf", "4747fe89g3we", WPA2, WLAN_CIPHER_AES);
+    // WiFi.setCredentials("BadWolf", "*************", WPA2, WLAN_CIPHER_AES);
     if (debug_serial) {  Serial.println("I am Pond Topper Upper"); }
   }
 
