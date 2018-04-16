@@ -11,6 +11,7 @@
 
 //
 SYSTEM_THREAD(ENABLED);
+STARTUP(WiFi.selectAntenna(ANT_EXTERNAL));
 
 
 // DEBUG STUFF
@@ -19,6 +20,7 @@ bool debug_serial = false;
 // These defaults are reset according to SystemID in setup()
 int flask_port = 5001;    //5000 for live, 5001 for beta/testing
 String flask_path = "/pond/test"; //
+String flask_host = "flask.home.prv"; //Not currently used
 
 
 // The following all in ms
@@ -70,8 +72,8 @@ float air_temp_min = 0;             // min temperature, not really used
 float system_temp_min = 0;          // min temperature, not really used
 
 // Water Level variables and settings
-int water_level_target = 490;       // Target water level, change to suit requirements, higher is lower
-int water_level_accuracy = 7;       // Will try to keep the water level within this many mm of the target
+int water_level_target = 550;       // Target water level, change to suit requirements, higher is lower (Was 490)
+int water_level_accuracy = 10;       // Will try to keep the water level within this many mm of the target
 int water_level = 0;                // Water level below sensor, in mm
 int water_level_low_trig = water_level_target + water_level_accuracy;     // Water Level LOW trigger (start filling), distance from sensor in mm
 int water_level_high_trig = water_level_target - water_level_accuracy;    // Water Level HIGH trigger (stop filling), distance from sensor in mm
@@ -208,6 +210,7 @@ void setup()
   last_cloud_connection_check = millis();
   last_idle_blip = millis();
   System.version().toCharArray(myversion,32);
+
   // This relies on us running the System Thread.
   if (waitFor(Particle.connected, 10000)) {
     if (debug_serial) {  Serial.println("I am Connected to Particle Cloud (boot time)."); }
@@ -230,6 +233,7 @@ void setup()
     Serial.print("Finishing setup. Initial Memory is:");
     Serial.println(initial_mem_usage);
   }
+  Particle.publish("pond-topper-upper-up", PRIVATE);
   // Enable ultrasonic power (will sleep later)
   //delay(100);
   //digitalWrite(usonic_enable, HIGH);
@@ -422,8 +426,10 @@ int get_numsensors()
 // TODO - do something about that!
 {
   int numsensors = 0;
-  while (numsensors != how_many_sensors)
+  int tries = 100;
+  while ((numsensors != how_many_sensors) && (tries > 0))
   {
+    tries--;
     numsensors = ow_search_sensors(10, sensors);
     if (numsensors != how_many_sensors)
     {
@@ -537,7 +543,6 @@ int check_battery()
 }
 
 
-
 int check_solar()
 {
   // This does not work at the moment for hardware reasons.
@@ -623,9 +628,18 @@ void loop()
     if (debug_serial) {  Serial.println("Checking for result from measurement."); }
     //digitalWrite(valve_controlPin, LOW);
     int numsensors = get_numsensors();
-    float my_results_f[numsensors];
-    bool had_error = do_measurement(numsensors, my_results_f);
-    delay(10);
+    bool had_error = false;
+    float my_results_f[how_many_sensors];
+    if (numsensors == how_many_sensors)
+    {
+      float my_results_f[numsensors];
+      bool had_error = do_measurement(numsensors, my_results_f);
+      delay(10);
+    }
+    else
+    {
+      had_error = true;
+    }
     if (not(had_error))
     {
       if (debug_serial) {  Serial.println("Appears we have a measurement ok. Processing it."); }
@@ -717,6 +731,7 @@ void loop()
       // Some sort of measurement problem - oh what to do, what to do...
       // Just start another measurement asap please
       if (debug_serial) {  Serial.println("Error getting measurement. Resetting variables..."); }
+      delay(250);              // OK not QUITE ASAP
       good_measurement = false; // should be a pointless thing, but can't be too careful
       measuring_flag = false; // without resetting the last_measurement time this should result in an immediate re-measure
     }
@@ -741,9 +756,15 @@ void loop()
   {
     //RGB.control(true);
     // Section for logging to local database via REST JSON FLASK
-    if ( (millis() - last_flask > interval_flask) && good_measurement)
+    // if ( (millis() - last_flask > interval_flask) && good_measurement)
+    if (millis() - last_flask > interval_flask)
     {
       if (debug_serial) {  Serial.println("\r\nStarting to log to flask..."); }
+      int measureok = 0;
+      if (good_measurement)
+        {
+          measureok = 1;
+        }
       HttpClient http;
       http_header_t headers[] = {
         { "Content-Type", "application/json" },
@@ -753,7 +774,7 @@ void loop()
       };
       http_request_t request;
       http_response_t response;
-      request.hostname = "flask.home";
+      request.hostname = "flask.home.prv";
       request.port = flask_port;
       request.path = flask_path;
       //if (debug_serial) {  Serial.print("Getting RSSI...."); }
@@ -766,14 +787,14 @@ void loop()
       \"system_temp\":\"%.1f\",\"system_temp_ave\":\"%.1f\",\"system_temp_max\":\"%.1f\",\"system_temp_min\":\"%.1f\",\
       \"water_level\":\"%d\",\"water_level_stdev\":\"%d\",\"valve_status\":\"%d\",\
       \"battery_mV\":\"%d\",\"battery_percent\":\"%d\",\"battery_status\":\"%s\",\
-      \"freemem\":\"%d\",\"initmem\":\"%d\",\"reconnects\":\"%d\",\"version\":\"%s\",\"RSSI\":\"%d\"}",
+      \"freemem\":\"%d\",\"initmem\":\"%d\",\"reconnects\":\"%d\",\"version\":\"%s\",\"RSSI\":\"%d\",\"measureok\":\"%d\"}",
       tablename,
       air_temp, air_temp_ave, air_temp_max, air_temp_min,
       water_temp, water_temp_ave, water_temp_max, water_temp_min,
       system_temp, system_temp_ave, system_temp_max, system_temp_min,
       water_level, water_level_stdev, valve_status,
       battery_mV, battery_percent, current_battery_status,
-      freemem, initial_mem_usage, reconnect_count, myversion, myrssi
+      freemem, initial_mem_usage, reconnect_count, myversion, myrssi, measureok
       );
       if (debug_serial)
       {
@@ -783,6 +804,7 @@ void loop()
       request.body = postdata;
       //PhotonWdgs::tickle();
       http.post(request, response, headers);
+      Particle.publish("pond-topper-upper-dlog", postdata, PRIVATE);
       //
       if (debug_serial)
       {
@@ -873,10 +895,10 @@ void loop()
       // Must be a shorter interval than the watchdog timer!
       // RGB.control(false);
       //PhotonWdgs::tickle();
-      if (not(waitFor(Particle.connected, 8000))) {
+      if (not(waitFor(Particle.connected, 20000))) {
         reconnect_count++;
         if (debug_serial) {
-          Serial.printf("Particle not connected in 8000 msec... oh dear... this is  an incident: %d\r\n",reconnect_count);
+          Serial.printf("Particle not connected in 20000 msec... oh dear... this is  an incident: %d\r\n",reconnect_count);
         }
         // Some sort of network problem - oh what to do, what to do...
         // Just start another measurement asap, got to assume this one is out of date now
